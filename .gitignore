@@ -1,0 +1,8 @@
+# Build output belongs in the separate Vencord checkout.
+node_modules/
+dist/
+build/
+.cache/
+*.log
+.DS_Store
+Thumbs.db
