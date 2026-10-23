@@ -1,34 +1,27 @@
 # CensorUser
 
-A standalone Vencord userplugin for **visual identity masking** – not message censorship.
+A standalone custom Vencord plugin that **replaces rendered identity fields locally**. It does not erase chat messages, overlay black rectangles over the interface, or modify Discord's server-side user/message records.
 
-- Open a user or message context menu and use the **Censor User** checkbox. Checked means anonymized; uncheck it to restore their identity. The state is remembered by Discord user ID.
-- Message headers use a black name bar and avatar, without nearby user tags, badges, or decorations.
-- **Reply previews** resolve the original author's Discord ID and mask that author's name, avatar, and tags when the referenced message is available. The quoted text remains visible.
-- **Member lists** use Vencord's `MemberListDecoratorsAPI` to identify users and hide the selected member's name, image, tags, and status. Context-menu access is retained for reversing censorship.
-- **User profile popouts and DM profile sidebars** are suppressed when their user ID can be associated with the renderer. This hides visible statuses, decorations, banners, and activity cards in those profile views.
-- **Original message bodies, attachments, embeds, timestamps, and reactions remain visible.** No message data is modified.
-- The censored-user ID list persists globally, including when switching between DMs, group DMs, and server channels. Loaded message rows are updated automatically.
+## Behavior
 
-## Limitations
-
-**This is a prototype, not guaranteed screenshot-safe anonymization.** The updated reply, member-list, and profile handling relies on current Discord/Vencord rendering structures and still needs live runtime validation. In particular, mentions by other users, some profile-opening routes, tooltips, notifications, search results, DM navigation titles, and third-party plugin UI **may still identify a censored user**. Visual CSS changes do not remove names from underlying Discord data or developer tools. Inspect the screen before recording/sharing it.
-
-The implementation intentionally masks structurally identifiable author components rather than replacing all matching text everywhere, which would alter conversation content or censor unrelated users with similar names. Profile and sidebar selectors may change with Discord updates.
+- Open a user or profile context menu and check **Censor User**. Uncheck it to restore their identity. Censored IDs persist across conversations and Discord restarts.
+- **Messages:** Replace the selected author's displayed name with black block characters and their avatar image source with a neutral black SVG. Their message text, attachments, quoted content, embeds, reactions, and timestamps remain readable.
+- **Replies:** Resolve the referenced author's ID through Discord's message stores, then replace the author name/avatar and remove nearby identifying tags. The quote remains intact.
+- **Members/DM lists:** Replace names and profile image sources in the identified user's row. Remove associated custom status, tags, decorations, and other identity fields while preserving row interactions.
+- **Profiles:** Keep popouts and full-profile navigation functional. Replace identity text/image fields and remove personalized profile sections, status, about/bio, decorations/effects, linked accounts, and activity.
+- **Restoration:** The plugin tracks original rendered text, image attributes, and visibility styles in memory and restores them when censorship is switched off. It does not replace or overwrite Discord's user data objects.
 
 ## MSYS2 / Git Bash – install or update
 
-Requires Git, Node.js, and pnpm available on `PATH`.
+Requires Git, Node.js 22+, and pnpm on your PATH.
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Kooraseru/CensorUser/main/scripts/install.sh)
 ```
 
-First run: clone this repository and upstream Vencord separately under `%LOCALAPPDATA%/CensorUser` on Windows, copy the plugin into `src/userplugins/censorUser`, install dependencies, build, and launch the interactive injector. Later runs: fast-forward pull both repositories and rebuild. Restart Discord after updating.
+The first run clones this repo plus upstream Vencord separately under `%LOCALAPPDATA%/CensorUser` on Windows, installs dependencies, builds, and runs Vencord's injector. Later runs use `git pull --ff-only` and rebuild. Restart Discord after updating.
 
-If you already installed Vencord, future runs reuse that checkout. To rerun the injector manually, use `pnpm inject` from the Vencord directory.
-
-You can also run directly from a plugin checkout:
+You can also run the synced checkout directly:
 
 ```bash
 bash scripts/sync.sh
@@ -43,4 +36,10 @@ PowerShell alternative:
 irm https://raw.githubusercontent.com/Kooraseru/CensorUser/main/scripts/install.ps1 | iex
 ```
 
-GPL-3.0-or-later.
+## Limitations
+
+**This is a prototype and is not guaranteed safe for anonymized screenshots or recordings.** Discord changes internal component structures, and some fields may still appear through search, mentions, tooltips, notifications, third-party plugins, profile widgets, or undocumented UI paths. The replacement is applied to the rendered client view; the underlying Discord data remains available to the client and its developer tools.
+
+The replacement/restoration helpers pass source syntax/type checks using Vencord-compatible stubs and targeted unit tests. A full Vencord build and the live Discord rendering paths have **not** been verified for this revision. Review the visible output before publishing it.
+
+License: GPL-3.0-or-later.
