@@ -3,14 +3,16 @@
 A standalone Vencord userplugin for **visual identity masking** – not message censorship.
 
 - Open a user or message context menu and use the **Censor User** checkbox. Checked means anonymized; uncheck it to restore their identity. The state is remembered by Discord user ID.
-- Chat message headers show a fixed-width black name bar, a black avatar, and no username-adjacent identity tags, badges, or avatar decorations.
+- Message headers use a black name bar and avatar, without nearby user tags, badges, or decorations.
+- **Reply previews** resolve the original author's Discord ID and mask that author's name, avatar, and tags when the referenced message is available. The quoted text remains visible.
+- **Member lists** use Vencord's `MemberListDecoratorsAPI` to identify users and hide the selected member's name, image, tags, and status. Context-menu access is retained for reversing censorship.
+- **User profile popouts and DM profile sidebars** are suppressed when their user ID can be associated with the renderer. This hides visible statuses, decorations, banners, and activity cards in those profile views.
 - **Original message bodies, attachments, embeds, timestamps, and reactions remain visible.** No message data is modified.
 - The censored-user ID list persists globally, including when switching between DMs, group DMs, and server channels. Loaded message rows are updated automatically.
-- Clicking an anonymized author name or avatar in a message is prevented from opening the profile. In an active 1:1 DM with a censored user, known profile sidebar containers are hidden.
 
 ## Limitations
 
-**This is a prototype, not guaranteed screenshot-safe anonymization.** Discord UI elements without a reliable user-ID association cannot be confidently masked by this implementation. In particular, user profiles opened via other routes, group DM/member lists, mentions made by other users, tooltips, notifications, DM navigation titles and third-party plugin UI **may still identify a censored user**. Visual CSS changes do not remove names from underlying Discord data or developer tools. Inspect the screen before recording/sharing it.
+**This is a prototype, not guaranteed screenshot-safe anonymization.** The updated reply, member-list, and profile handling relies on current Discord/Vencord rendering structures and still needs live runtime validation. In particular, mentions by other users, some profile-opening routes, tooltips, notifications, search results, DM navigation titles, and third-party plugin UI **may still identify a censored user**. Visual CSS changes do not remove names from underlying Discord data or developer tools. Inspect the screen before recording/sharing it.
 
 The implementation intentionally masks structurally identifiable author components rather than replacing all matching text everywhere, which would alter conversation content or censor unrelated users with similar names. Profile and sidebar selectors may change with Discord updates.
 
