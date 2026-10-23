@@ -134,12 +134,14 @@ function patchUserMenu(navId: string, children: Array<ReactElement<any> | null>,
         .find(id => typeof id === "string" && SNOWFLAKE.test(id)) as string | undefined;
     if (!userId) return;
 
-    // A single native menu item avoids an extra, malformed checkbox glyph.
+    // Use Vencord's native checked menu control. The same user ID is
+    // evaluated whenever the menu is opened, including after restarting.
     children.push(
-        <Menu.MenuItem
+        <Menu.MenuCheckboxItem
             id="vc-censor-user-toggle"
             key="vc-censor-user-toggle"
-            label={isCensored(userId) ? "Uncensor User" : "Censor User"}
+            label="Censor User"
+            checked={isCensored(userId)}
             action={() => toggleCensor(userId)}
         />
     );

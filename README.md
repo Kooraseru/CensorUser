@@ -2,7 +2,7 @@
 
 A standalone Vencord userplugin for **visual identity masking** – not message censorship.
 
-- Right-click a user or one of their messages and choose **Censor User**. Choose **Uncensor User** to reverse it. The separate checkbox icon has been removed.
+- Open a user or message context menu and use the **Censor User** checkbox. Checked means anonymized; uncheck it to restore their identity. The state is remembered by Discord user ID.
 - Chat message headers show a fixed-width black name bar, a black avatar, and no username-adjacent identity tags, badges, or avatar decorations.
 - **Original message bodies, attachments, embeds, timestamps, and reactions remain visible.** No message data is modified.
 - The censored-user ID list persists globally, including when switching between DMs, group DMs, and server channels. Loaded message rows are updated automatically.
