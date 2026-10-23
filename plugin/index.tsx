@@ -1,127 +1,191 @@
 /*
- * CensorUser – reversible, local identity masking for Discord.
+ * CensorUser – local identity masking without hiding conversation content.
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 import { addGlobalContextMenuPatch, removeGlobalContextMenuPatch } from "@api/ContextMenu";
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
-import type { Message, User } from "@vencord/discord-types";
-import { Menu } from "@webpack/common";
+import type { Message } from "@vencord/discord-types";
+import { ChannelStore, Menu, SelectedChannelStore } from "@webpack/common";
 import type { ReactElement } from "react";
 
-const STYLE_ID = "vc-censor-user-style";
 const AUTHOR_ATTRIBUTE = "data-vc-censor-author";
+const ACTIVE_ATTRIBUTE = "data-vc-censor-active";
+const STYLE_ID = "vc-censor-user-style";
 const SNOWFLAKE = /^\d{15,22}$/;
 
-function parseIds(value: string): string[] {
-    return [...new Set(value.split(/[\s,;]+/).filter(id => SNOWFLAKE.test(id)))];
+let observer: MutationObserver | undefined;
+let updateQueued = false;
+
+function ids(): Set<string> {
+    return new Set(settings.store.censoredUserIds.split(/[\s,;]+/).filter(id => SNOWFLAKE.test(id)));
 }
 
 const settings = definePluginSettings({
     censoredUserIds: {
         type: OptionType.STRING,
-        description: "Discord user IDs whose identities should be masked locally. Message text remains readable.",
+        description: "Discord user IDs to anonymize. Messages remain readable; identity hiding is visual only.",
         default: "",
         multiline: true,
-        onChange: () => refreshStyles()
+        onChange: () => refresh()
     }
 });
 
 function isCensored(id: string | undefined): boolean {
-    return Boolean(id && parseIds(settings.store.censoredUserIds).includes(id));
+    return Boolean(id && ids().has(id));
 }
 
 function toggleCensor(id: string): void {
     if (!SNOWFLAKE.test(id)) return;
-    const ids = new Set(parseIds(settings.store.censoredUserIds));
-    if (ids.has(id)) ids.delete(id);
-    else ids.add(id);
-    settings.store.censoredUserIds = [...ids].join(", ");
-    refreshStyles();
+    const current = ids();
+    if (current.has(id)) current.delete(id);
+    else current.add(id);
+    settings.store.censoredUserIds = Array.from(current).join(", ");
+    refresh();
 }
 
 /**
- * Apply visual identity masking to message headers only. The message body,
- * attachments, embeds, reactions, and links remain rendered normally.
- * This is not a security boundary or full-profile anonymizer.
+ * Tag identity components rather than hiding all children of a message row.
+ * The content, attachments, embeds, timestamps, and reactions stay intact.
  */
-function refreshStyles(): void {
-    const style = document.getElementById(STYLE_ID);
-    if (!style) return;
+function markMessage(row: HTMLElement, enabled: boolean): void {
+    row.toggleAttribute(ACTIVE_ATTRIBUTE, enabled);
+    if (!enabled) return;
 
-    const ids = parseIds(settings.store.censoredUserIds);
-    if (!ids.length) {
-        style.textContent = "";
-        return;
+    const header = row.querySelector<HTMLElement>("h3");
+    if (header) {
+        const name = header.querySelector<HTMLElement>(
+            '[class*="headerText"], [class*="username"]'
+        );
+        name?.setAttribute("data-vc-censor-name", "");
+
+        // Discord may place identity tags outside the username wrapper.
+        header.querySelectorAll<HTMLElement>(
+            '[class*="clanTag"], [class*="guildTag"], [class*="botTag"], ' +
+            '[class*="roleIcon"], [class*="nameplate"], [class*="badge"]'
+        ).forEach(node => node.setAttribute("data-vc-censor-extra", ""));
     }
 
-    const rows = ids.map(id => `li[${AUTHOR_ATTRIBUTE}="${id}"]`);
-    const names = rows.flatMap(row => [
-        `${row} [class*="username_"]`,
-        `${row} [class*="username-"]`,
-        `${row} [class*="headerText_"] [class*="username"]`,
-        `${row} [class*="headerText-"] [class*="username"]`
-    ]).join(",\n");
-    const avatars = rows.flatMap(row => [
-        `${row} [class*="avatar_"] img`,
-        `${row} [class*="avatar-"] img`,
-        `${row} img[class*="avatar"]`,
-        `${row} [class*="avatarDecoration"]`,
-        `${row} [class*="avatarDecoration"] img`
-    ]).join(",\n");
+    // Only the first avatar belongs to the message author; later ones can
+    // belong to embeds, attachments, or linked content.
+    const avatar = row.querySelector<HTMLElement>(
+        'img[class*="avatar"], svg[class*="avatar"], [class*="avatar"] img'
+    );
+    const avatarRoot = avatar?.closest<HTMLElement>(
+        'a[class*="avatar"], div[class*="avatar"], span[class*="avatar"]'
+    ) ?? avatar;
+    avatarRoot?.setAttribute("data-vc-censor-avatar", "");
 
-    style.textContent = `
-/* Keep the username's layout, but make its contents illegible. */
-${names} {
-    color: transparent !important;
-    background: #000 !important;
-    border-radius: 2px !important;
-    text-shadow: none !important;
-    -webkit-text-fill-color: transparent !important;
-    user-select: none !important;
-}
-/* Remove identifying avatar imagery and decorations without collapsing layout. */
-${avatars} {
-    opacity: 0 !important;
-}
-${rows.map(row => `${row} [class*="avatar_"], ${row} [class*="avatar-"]`).join(",\n")} {
-    background: #000 !important;
-    border-radius: 50% !important;
-}
-`;
+    row.querySelectorAll<HTMLElement>(
+        '[class*="avatarDecoration"], [class*="avatarAdornment"], [class*="avatarOverlay"]'
+    ).forEach(node => node.setAttribute("data-vc-censor-extra", ""));
 }
 
-/** Global patch covers profile overflow menus with different nav IDs. */
+/** Only a one-to-one DM may be associated with a single user identity. */
+function isSelectedCensoredDM(censored: Set<string>): boolean {
+    try {
+        const channel = ChannelStore.getChannel(SelectedChannelStore.getChannelId());
+        return Boolean(channel && channel.type === 1 &&
+            channel.recipients?.some((id: string) => censored.has(id)));
+    } catch {
+        return false;
+    }
+}
+
+function updateDom(): void {
+    const censored = ids();
+    for (const row of document.querySelectorAll<HTMLElement>('li[data-vc-censor-author]')) {
+        const id = row.getAttribute(AUTHOR_ATTRIBUTE) ?? "";
+        markMessage(row, censored.has(id));
+    }
+    document.body.toggleAttribute("data-vc-censor-selected-dm", isSelectedCensoredDM(censored));
+}
+
+function refresh(): void {
+    updateDom();
+}
+
+function scheduleUpdate(): void {
+    if (updateQueued) return;
+    updateQueued = true;
+    queueMicrotask(() => {
+        updateQueued = false;
+        updateDom();
+    });
+}
+
+/** Prevent clicking author name/avatar from opening a censored user profile. */
+function preventProfileClick(event: MouseEvent): void {
+    if (event.button !== 0 || !(event.target instanceof Element)) return;
+    const row = event.target.closest<HTMLElement>('li[data-vc-censor-active]');
+    if (!row) return;
+
+    // Do not interfere with message bodies, attachments or context menus.
+    if (!event.target.closest('h3, [data-vc-censor-avatar], [class*="avatar"]')) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+}
+
+/** Also supports overflow profile menus whose identifiers change by context. */
 function patchUserMenu(navId: string, children: Array<ReactElement<any> | null>, ...args: any[]): void {
     if (!/user|profile|message/i.test(navId)) return;
+    const userId = args.map(arg => arg?.user?.id ?? arg?.message?.author?.id ?? arg?.targetUser?.id)
+        .find(id => typeof id === "string" && SNOWFLAKE.test(id)) as string | undefined;
+    if (!userId) return;
 
-    let id: string | undefined;
-    for (const arg of args) {
-        id = arg?.user?.id ?? arg?.message?.author?.id ?? arg?.targetUser?.id;
-        if (id && SNOWFLAKE.test(id)) break;
-    }
-    if (!id || !SNOWFLAKE.test(id)) return;
-
+    // A single native menu item avoids an extra, malformed checkbox glyph.
     children.push(
-        <Menu.MenuCheckboxItem
+        <Menu.MenuItem
             id="vc-censor-user-toggle"
             key="vc-censor-user-toggle"
-            label="Censor User"
-            checked={isCensored(id)}
-            action={() => toggleCensor(id)}
+            label={isCensored(userId) ? "Uncensor User" : "Censor User"}
+            action={() => toggleCensor(userId)}
         />
     );
 }
 
+const CSS = [
+    'li[data-vc-censor-active] [data-vc-censor-name] {',
+    '    display: inline-flex !important;',
+    '    align-items: center !important;',
+    '    width: 88px !important;',
+    '    min-width: 88px !important;',
+    '    min-height: 16px !important;',
+    '    max-height: 16px !important;',
+    '    overflow: hidden !important;',
+    '    border-radius: 2px !important;',
+    '    background: #000 !important;',
+    '    color: transparent !important;',
+    '    -webkit-text-fill-color: transparent !important;',
+    '    text-shadow: none !important;',
+    '    font-size: 0 !important;',
+    '    user-select: none !important;',
+    '    pointer-events: none !important;',
+    '}',
+    'li[data-vc-censor-active] [data-vc-censor-name] * { visibility: hidden !important; }',
+    'li[data-vc-censor-active] [data-vc-censor-extra] { display: none !important; }',
+    'li[data-vc-censor-active] [data-vc-censor-avatar] {',
+    '    background: #000 !important;',
+    '    filter: brightness(0) !important;',
+    '    border-radius: 50% !important;',
+    '    pointer-events: none !important;',
+    '}',
+    'body[data-vc-censor-selected-dm] [class*="profilePanel"],',
+    'body[data-vc-censor-selected-dm] [class*="profileSidebar"] {',
+    '    display: none !important;',
+    '}'
+].join("\n");
+
 export default definePlugin({
     name: "CensorUser",
-    description: "Hide selected users' identities while preserving their messages.",
+    description: "Mask user identities across message histories while keeping messages readable.",
     authors: [{ name: "Kooraseru", id: 0n }],
     tags: ["Chat", "Privacy"],
     settings,
     patches: [
         {
+            // This patch was confirmed to tag real <li> message rows in Discord.
             find: "Message must not be a thread starter message",
             replacement: {
                 match: /"aria-setsize":-1,(?=.{0,150}?#{intl::MESSAGE_A11Y_ROLE_DESCRIPTION})/,
@@ -136,13 +200,23 @@ export default definePlugin({
         if (!document.getElementById(STYLE_ID)) {
             const style = document.createElement("style");
             style.id = STYLE_ID;
+            style.textContent = CSS;
             document.head.appendChild(style);
         }
         addGlobalContextMenuPatch(patchUserMenu);
-        refreshStyles();
+        document.addEventListener("click", preventProfileClick, true);
+        observer = new MutationObserver(scheduleUpdate);
+        observer.observe(document.body, { childList: true, subtree: true });
+        refresh();
     },
     stop() {
+        observer?.disconnect();
+        observer = undefined;
         removeGlobalContextMenuPatch(patchUserMenu);
+        document.removeEventListener("click", preventProfileClick, true);
+        document.querySelectorAll<HTMLElement>('li[data-vc-censor-active]')
+            .forEach(row => row.removeAttribute(ACTIVE_ATTRIBUTE));
+        document.body.removeAttribute("data-vc-censor-selected-dm");
         document.getElementById(STYLE_ID)?.remove();
     }
 });

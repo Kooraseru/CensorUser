@@ -1,23 +1,32 @@
 # CensorUser
 
-A standalone Vencord plugin for **identity masking**, not message censorship.
+A standalone Vencord userplugin for **visual identity masking** – not message censorship.
 
-- Right-click a user or open a supported user/profile context menu and toggle **Censor User**.
-- Censored authors' message usernames appear as black bars; chat avatars are blacked out.
-- **Messages, attachments, embeds and reactions remain visible.**
-- Preferences are saved by Discord user ID, and masking is reversible.
-- Current scope is message-row identities. Profile cards, member lists, banners, badges, profile effects, mentions and other identity-bearing surfaces are **not yet reliably masked**. Do not rely on this prototype for privacy-sensitive screenshots.
-- Context menu coverage varies with Discord's internal menu IDs; profile overflow support needs live testing.
+- Right-click a user or one of their messages and choose **Censor User**. Choose **Uncensor User** to reverse it. The separate checkbox icon has been removed.
+- Chat message headers show a fixed-width black name bar, a black avatar, and no username-adjacent identity tags, badges, or avatar decorations.
+- **Original message bodies, attachments, embeds, timestamps, and reactions remain visible.** No message data is modified.
+- The censored-user ID list persists globally, including when switching between DMs, group DMs, and server channels. Loaded message rows are updated automatically.
+- Clicking an anonymized author name or avatar in a message is prevented from opening the profile. In an active 1:1 DM with a censored user, known profile sidebar containers are hidden.
 
-## MSYS2 / Git Bash installation or update
+## Limitations
 
-Requires Git, Node.js and pnpm:
+**This is a prototype, not guaranteed screenshot-safe anonymization.** Discord UI elements without a reliable user-ID association cannot be confidently masked by this implementation. In particular, user profiles opened via other routes, group DM/member lists, mentions made by other users, tooltips, notifications, DM navigation titles and third-party plugin UI **may still identify a censored user**. Visual CSS changes do not remove names from underlying Discord data or developer tools. Inspect the screen before recording/sharing it.
+
+The implementation intentionally masks structurally identifiable author components rather than replacing all matching text everywhere, which would alter conversation content or censor unrelated users with similar names. Profile and sidebar selectors may change with Discord updates.
+
+## MSYS2 / Git Bash – install or update
+
+Requires Git, Node.js, and pnpm available on `PATH`.
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Kooraseru/CensorUser/main/scripts/install.sh)
 ```
 
-The first run clones this repository and upstream Vencord under `%LOCALAPPDATA%/CensorUser` (when available), copies the plugin into `src/userplugins/censorUser`, installs dependencies, builds and invokes the injector. Later runs update both repositories using `git pull --ff-only` and rebuild. **Restart Discord after updating.** If the first-run injector download fails, run `pnpm inject` from the Vencord directory.
+First run: clone this repository and upstream Vencord separately under `%LOCALAPPDATA%/CensorUser` on Windows, copy the plugin into `src/userplugins/censorUser`, install dependencies, build, and launch the interactive injector. Later runs: fast-forward pull both repositories and rebuild. Restart Discord after updating.
+
+If you already installed Vencord, future runs reuse that checkout. To rerun the injector manually, use `pnpm inject` from the Vencord directory.
+
+You can also run directly from a plugin checkout:
 
 ```bash
 bash scripts/sync.sh
@@ -32,6 +41,4 @@ PowerShell alternative:
 irm https://raw.githubusercontent.com/Kooraseru/CensorUser/main/scripts/install.ps1 | iex
 ```
 
-This is visual redaction only. It does not modify Discord's message store or remote data, and it does not prevent someone from revealing identities using other UI elements or developer tools.
-
-License: GPL-3.0-or-later.
+GPL-3.0-or-later.
