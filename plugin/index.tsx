@@ -1,19 +1,19 @@
 /*
- * CensorUser – a reversible, local message privacy overlay.
+ * CensorUser – reversible, local identity masking for Discord.
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { NavContextMenuPatchCallback } from "@api/ContextMenu";
+import { addGlobalContextMenuPatch, removeGlobalContextMenuPatch } from "@api/ContextMenu";
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
 import type { Message, User } from "@vencord/discord-types";
 import { Menu } from "@webpack/common";
+import type { ReactElement } from "react";
 
 const STYLE_ID = "vc-censor-user-style";
 const AUTHOR_ATTRIBUTE = "data-vc-censor-author";
 const SNOWFLAKE = /^\d{15,22}$/;
 
-/** Store immutable IDs rather than changeable usernames. */
 function parseIds(value: string): string[] {
     return [...new Set(value.split(/[\s,;]+/).filter(id => SNOWFLAKE.test(id)))];
 }
@@ -21,7 +21,7 @@ function parseIds(value: string): string[] {
 const settings = definePluginSettings({
     censoredUserIds: {
         type: OptionType.STRING,
-        description: "Censored Discord user IDs. Use the Censor User context-menu checkbox to toggle them.",
+        description: "Discord user IDs whose identities should be masked locally. Message text remains readable.",
         default: "",
         multiline: true,
         onChange: () => refreshStyles()
@@ -32,9 +32,19 @@ function isCensored(id: string | undefined): boolean {
     return Boolean(id && parseIds(settings.store.censoredUserIds).includes(id));
 }
 
+function toggleCensor(id: string): void {
+    if (!SNOWFLAKE.test(id)) return;
+    const ids = new Set(parseIds(settings.store.censoredUserIds));
+    if (ids.has(id)) ids.delete(id);
+    else ids.add(id);
+    settings.store.censoredUserIds = [...ids].join(", ");
+    refreshStyles();
+}
+
 /**
- * Update a stylesheet rather than modifying Discord's message data. Updating
- * the stylesheet also affects message rows already mounted in the viewport.
+ * Apply visual identity masking to message headers only. The message body,
+ * attachments, embeds, reactions, and links remain rendered normally.
+ * This is not a security boundary or full-profile anonymizer.
  */
 function refreshStyles(): void {
     const style = document.getElementById(STYLE_ID);
@@ -47,44 +57,50 @@ function refreshStyles(): void {
     }
 
     const rows = ids.map(id => `li[${AUTHOR_ATTRIBUTE}="${id}"]`);
-    const selectors = (suffix = "") => rows.map(row => row + suffix).join(",\n");
+    const names = rows.flatMap(row => [
+        `${row} [class*="username_"]`,
+        `${row} [class*="username-"]`,
+        `${row} [class*="headerText_"] [class*="username"]`,
+        `${row} [class*="headerText-"] [class*="username"]`
+    ]).join(",\n");
+    const avatars = rows.flatMap(row => [
+        `${row} [class*="avatar_"] img`,
+        `${row} [class*="avatar-"] img`,
+        `${row} img[class*="avatar"]`,
+        `${row} [class*="avatarDecoration"]`,
+        `${row} [class*="avatarDecoration"] img`
+    ]).join(",\n");
 
     style.textContent = `
-${selectors()} {
-    position: relative !important;
-    min-height: 38px !important;
-    box-sizing: border-box !important;
+/* Keep the username's layout, but make its contents illegible. */
+${names} {
+    color: transparent !important;
+    background: #000 !important;
+    border-radius: 2px !important;
+    text-shadow: none !important;
+    -webkit-text-fill-color: transparent !important;
+    user-select: none !important;
 }
-${selectors(" > *")} {
-    display: none !important;
+/* Remove identifying avatar imagery and decorations without collapsing layout. */
+${avatars} {
+    opacity: 0 !important;
 }
-${selectors("::after")} {
-    content: "[CENSORED USER]  [MESSAGE REDACTED]" !important;
-    display: block !important;
-    width: fit-content !important;
-    max-width: calc(100% - 60px) !important;
-    margin: 4px 0 4px 54px !important;
-    padding: 7px 10px !important;
-    border-radius: 4px !important;
-    background: var(--background-secondary, var(--background-base-lower, #222)) !important;
-    color: var(--text-muted, #a8a8a8) !important;
-    font: 12px/1.4 var(--font-primary, sans-serif) !important;
-    pointer-events: none !important;
+${rows.map(row => `${row} [class*="avatar_"], ${row} [class*="avatar-"]`).join(",\n")} {
+    background: #000 !important;
+    border-radius: 50% !important;
 }
 `;
 }
 
-function toggleCensor(id: string): void {
-    if (!SNOWFLAKE.test(id)) return;
-    const ids = new Set(parseIds(settings.store.censoredUserIds));
-    if (ids.has(id)) ids.delete(id);
-    else ids.add(id);
-    settings.store.censoredUserIds = [...ids].join(", ");
-    refreshStyles();
-}
+/** Global patch covers profile overflow menus with different nav IDs. */
+function patchUserMenu(navId: string, children: Array<ReactElement<any> | null>, ...args: any[]): void {
+    if (!/user|profile|message/i.test(navId)) return;
 
-const addCensorToggle: NavContextMenuPatchCallback = (children, props: { user?: User; message?: Message; }) => {
-    const id = (props?.user ?? props?.message?.author)?.id;
+    let id: string | undefined;
+    for (const arg of args) {
+        id = arg?.user?.id ?? arg?.message?.author?.id ?? arg?.targetUser?.id;
+        if (id && SNOWFLAKE.test(id)) break;
+    }
     if (!id || !SNOWFLAKE.test(id)) return;
 
     children.push(
@@ -96,22 +112,16 @@ const addCensorToggle: NavContextMenuPatchCallback = (children, props: { user?: 
             action={() => toggleCensor(id)}
         />
     );
-};
+}
 
 export default definePlugin({
     name: "CensorUser",
-    description: "Locally redact messages from selected Discord users. Toggle from the user context menu.",
+    description: "Hide selected users' identities while preserving their messages.",
     authors: [{ name: "Kooraseru", id: 0n }],
     tags: ["Chat", "Privacy"],
     settings,
-    contextMenus: {
-        "user-context": addCensorToggle,
-        "message": addCensorToggle
-    },
     patches: [
         {
-            // Match the same message-row prop location used by Vencord's
-            // ThemeAttributes plugin, while keeping our own data attribute.
             find: "Message must not be a thread starter message",
             replacement: {
                 match: /"aria-setsize":-1,(?=.{0,150}?#{intl::MESSAGE_A11Y_ROLE_DESCRIPTION})/,
@@ -128,9 +138,11 @@ export default definePlugin({
             style.id = STYLE_ID;
             document.head.appendChild(style);
         }
+        addGlobalContextMenuPatch(patchUserMenu);
         refreshStyles();
     },
     stop() {
+        removeGlobalContextMenuPatch(patchUserMenu);
         document.getElementById(STYLE_ID)?.remove();
     }
 });

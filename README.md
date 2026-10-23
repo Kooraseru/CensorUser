@@ -1,22 +1,23 @@
 # CensorUser
 
-A standalone [Vencord](https://github.com/Vendicated/Vencord) userplugin. Right-click a user or their message and toggle **Censor User**. Chat rows from that author are replaced locally with a redacted placeholder, including the message text, name, avatar, and embedded content.
+A standalone Vencord plugin for **identity masking**, not message censorship.
 
-**Status: prototype.** Message-row tagging follows Vencord's own `ThemeAttributes` patch, but live Discord behavior is not verified. This is visual redaction, *not* complete anonymization: member lists, mentions elsewhere, search, notifications, and underlying Discord data are not censored.
+- Right-click a user or open a supported user/profile context menu and toggle **Censor User**.
+- Censored authors' message usernames appear as black bars; chat avatars are blacked out.
+- **Messages, attachments, embeds and reactions remain visible.**
+- Preferences are saved by Discord user ID, and masking is reversible.
+- Current scope is message-row identities. Profile cards, member lists, banners, badges, profile effects, mentions and other identity-bearing surfaces are **not yet reliably masked**. Do not rely on this prototype for privacy-sensitive screenshots.
+- Context menu coverage varies with Discord's internal menu IDs; profile overflow support needs live testing.
 
-## MSYS2 / Git Bash – one command to install or update
+## MSYS2 / Git Bash installation or update
 
-Run with Git, Node.js, and pnpm available:
+Requires Git, Node.js and pnpm:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Kooraseru/CensorUser/main/scripts/install.sh)
 ```
 
-The first run clones this repository and upstream Vencord separately under `%LOCALAPPDATA%/CensorUser` when available, or `$HOME/.local/share/CensorUser` otherwise. It copies the plugin into `src/userplugins/censorUser`, runs `pnpm install --frozen-lockfile`, builds, and launches the interactive Vencord injector. Restart Discord and enable **CensorUser** in Vencord plugin settings.
-
-**Run the same command to update.** Both Git checkouts use `git pull --ff-only`, followed by another build. No Vencord fork or tokens required.
-
-From an existing clone:
+The first run clones this repository and upstream Vencord under `%LOCALAPPDATA%/CensorUser` (when available), copies the plugin into `src/userplugins/censorUser`, installs dependencies, builds and invokes the injector. Later runs update both repositories using `git pull --ff-only` and rebuild. **Restart Discord after updating.** If the first-run injector download fails, run `pnpm inject` from the Vencord directory.
 
 ```bash
 bash scripts/sync.sh
@@ -25,24 +26,12 @@ bash scripts/sync.sh --no-update
 bash scripts/sync.sh --vencord-dir /path/to/Vencord
 ```
 
-Use `CENSORUSER_ROOT` and `CENSORUSER_VENCORD_DIR` to override paths.
-
-## PowerShell alternative
+PowerShell alternative:
 
 ```powershell
 irm https://raw.githubusercontent.com/Kooraseru/CensorUser/main/scripts/install.ps1 | iex
 ```
 
-## Files
+This is visual redaction only. It does not modify Discord's message store or remote data, and it does not prevent someone from revealing identities using other UI elements or developer tools.
 
-- `plugin/index.tsx` – Vencord plugin
-- `scripts/install.sh` and `scripts/sync.sh` – MSYS2 installer and updater
-- `scripts/install.ps1` and `scripts/sync.ps1` – PowerShell equivalents
-
-The upstream Vencord source is never committed to this repo. No force-resets are performed. The plugin copies only its own file into the separate Vencord checkout.
-
-## Scope
-
-The toggle applies globally per Discord user ID. It masks the selected user's own chat message rows and does not alter MessageStore or Discord servers. It does **not** guarantee fully anonymous screenshots and may need updating when Discord changes its internal message renderer.
-
-[Custom plugin documentation](https://docs.vencord.dev/installing/custom-plugins/) · [Build instructions](https://docs.vencord.dev/installing/) · [GPL-3.0-or-later license](https://www.gnu.org/licenses/gpl-3.0.txt).
+License: GPL-3.0-or-later.
